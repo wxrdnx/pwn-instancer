@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<head>
+    <title><%= title %></title>
+    <link href="https://unpkg.com/nes.css/css/nes.min.css" rel="stylesheet" />
+    <link href='https://fonts.googleapis.com/css?family=Press Start 2P' rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
+</head>
+<body>
+    <div id="nescss">
+        <header class="sticky">
+            <div class="container">
+                <div class="nav-brand">
+                    <h1><%= title %></h1>
+                    <h2><%= title %> Challenge Instancer</h2>
+                </div>
+            </div>
+        </header>
+        <div class="container">
+            <main class="main-content">
+                <section class="showcase">
+                    <section class="nes-container with-title is-centered">
+                        <h3 class="title">Create Instance</h3>
+                        <form action="/create" method="POST">
+                            <input class="nes-btn is-primary" type="submit" value="Spawn Instance">
+                            <div class="cf-turnstile" data-sitekey="<%= turnstileSitekey %>" style="margin-top: 2rem"></div>
+                        </form>
+                    </section>
+                </section>
+                <section class="showcase">
+                </section>
+            </main>
+            <footer>
+                <p>
+                <span>&copy;2023</span>
+                <span>Powered by <a href="https://nostalgic-css.github.io/NES.css/">NES.css</a></span>
+                </p>
+            </footer>
+        </div>
+        <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    </div>
+</body>
