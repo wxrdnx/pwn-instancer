@@ -198,5 +198,5 @@ db.serialize(() => {
             res.status(404).send(message)
         }
     })
-    app.listen(33333)
+    app.listen(CHALLENGE_PORT)
 })
