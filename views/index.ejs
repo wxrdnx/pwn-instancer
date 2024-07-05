@@ -11,7 +11,7 @@
             <div class="container">
                 <div class="nav-brand">
                     <h1><%= title %></h1>
-                    <h2><%= title %> Challenge Instancer</h2>
+                    <h2>Challenge Instancer</h2>
                 </div>
             </div>
         </header>
@@ -20,10 +20,7 @@
                 <section class="showcase">
                     <section class="nes-container with-title is-centered">
                         <h3 class="title">Create Instance</h3>
-                        <form action="/create" method="POST">
-                            <input class="nes-btn is-primary" type="submit" value="Spawn Instance">
-                            <div class="cf-turnstile" data-sitekey="<%= turnstileSitekey %>" style="margin-top: 2rem"></div>
-                        </form>
+                        <button id="create-button" class="nes-btn is-primary">Spawn</button>
                     </section>
                 </section>
                 <section class="showcase">
@@ -36,6 +33,20 @@
                 </p>
             </footer>
         </div>
+        <div>
+            <form action="/create" method="POST">
+                <dialog id="turnstile-dialog" class="nes-dialog is-dark">
+                    <section class="message-left">
+                        <i class="nes-kirby"><br></i>
+                    <div class="nes-balloon from-left is-dark">
+                        <p class="nes-text">Verify that you are not a robot...</p>
+                    </div>
+                    </section>
+                    <div class="cf-turnstile" data-sitekey="<%= turnstileSitekey %>" data-callback="submitCreateInstance" style="margin-top: 2rem"></div>
+                </dialog>
+            </form>
+        </div>
         <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+        <script src="js/turnstile.js"></script>
     </div>
 </body>
