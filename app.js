@@ -12,7 +12,7 @@ const TIMEOUT_MINUTE = process.env.TIMEOUT_MINUTE || 30
 const WAIT_SPAWN_MINUTE = process.env.WAIT_SPAWN_MINUTE || 1
 const CHALLENGE_TITLE = process.env.CHALLENGE_TITLE || 'Seccomp Hell'
 const CHALLENGE_HOST = process.env.CHALLENGE_HOST || '127.0.0.1'
-const CHALLENGE_PORT = process.env.CHALLENGE_PORT || 30003
+const CHALLENGE_PORT = process.env.CHALLENGE_PORT || 30000
 //const CHALLENGE_CONTAINER = 'ubuntu:latest'
 const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAAJvhe911CZyTjmP'
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAAJvhZ4MTsHE0nw7hB6kPD0PQvs'
@@ -134,8 +134,9 @@ async function waitForInstanceToSpawn(db, instanceId, waitSec) {
 }
 
 function getRandomPort() {
-    let min_port = 49152, max_port = 65535
-    return Math.floor(Math.random() * (max_port - min_port + 1) + min_port)
+    //let minPort = 49152, maxPort = 65535
+    let minPort = 49000, maxPort = 50000
+    return Math.floor(Math.random() * (maxPort - minPort + 1) + minPort)
 }
 
 function spawnInstance(instanceId, port) {
