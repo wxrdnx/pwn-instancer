@@ -21,7 +21,9 @@
                     <h3 class="title">Create Instance</h3>
                     <div class="item">
                         <div class="nes-container is-dark with-title nes-pointer">
-                            <h4 class="nes-text">Press the following button to create an instance</h4>
+                            <h4 class="nes-text">Team Token</h4>
+                            <input id="team-token" class="nes-input <%= invalidToken ? 'is-error' : '' %>" type="text" placeholder="Token">
+                            <h6 class="nes-text is-error" style="margin-top: 16px;"><%= invalidToken ? 'Invalid Token' : '' %></h6>
                         </div>
                         <button id="create-button" class="nes-btn is-success">Create</button>
                     </div>
@@ -29,27 +31,28 @@
             </main>
             <footer>
                 <div>
-                    <span>&copy;2023</span>
+                    <span>&copy;2024</span>
                     <span>Powered by <a href="https://nostalgic-css.github.io/NES.css/">NES.css</a></span>
                 </div>
             </footer>
         </div>
         <div>
-            <form action="/create" method="POST">
-                <dialog id="turnstile-dialog" class="nes-dialog is-dark">
-                    <section class="nes-container is-centered">
-                        <section class="message-left">
-                            <i class="nes-kirby"><br></i>
-                            <div class="nes-balloon from-left is-dark">
-                                <p class="nes-text">Verify that you are not a robot...</p>
-                            </div>
-                        </section>
+            <dialog id="turnstile-dialog" class="nes-dialog is-dark">
+                <section class="nes-container is-centered">
+                    <section class="message-left">
+                        <i class="nes-kirby"><br></i>
+                        <div class="nes-balloon from-left is-dark">
+                            <p class="nes-text">Verify that you are not a robot...</p>
+                        </div>
+                    </section>
+                    <form action="/create" method="POST">
                         <div class="cf-turnstile" data-sitekey="<%= turnstileSitekey %>"
                                 data-callback="submitCreateInstance" style="margin-top: 2rem">
                         </div>
-                    </section>
-                </dialog>
-            </form>
+                        <input id="submit-token" name="token" value="" type="hidden">
+                    </form>
+                </section>
+            </dialog>
         </div>
         <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
         <script src="js/turnstile.js"></script>

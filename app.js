@@ -1,7 +1,7 @@
 const express = require('express')
 const bodyParser = require('body-parser')
 const FormData = require('form-data')
-//const session = require('express-session')
+const session = require('express-session')
 const fetch = require('node-fetch')
 const sqlite3 = require('sqlite3').verbose()
 
@@ -13,21 +13,18 @@ const WAIT_SPAWN_MINUTE = process.env.WAIT_SPAWN_MINUTE || 1
 const CHALLENGE_TITLE = process.env.CHALLENGE_TITLE || 'Seccomp Hell'
 const CHALLENGE_HOST = process.env.CHALLENGE_HOST || '127.0.0.1'
 const CHALLENGE_PORT = process.env.CHALLENGE_PORT || 30000
-//const CHALLENGE_CONTAINER = 'ubuntu:latest'
 const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAAJvhe911CZyTjmP'
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAAJvhZ4MTsHE0nw7hB6kPD0PQvs'
+const SCOREBOARD_URL = process.env.SCOREBOARD_URL || 'https://scoreboardbeta.hitconctf.com'
 
-//function createInstanceId() {
-    //return crypto.randomUUID()
-//}
-
-function getInstanceId(req) {
-    return req.ip
+async function getInstanceId(req, token) {
+    const url = SCOREBOARD_URL + '/team/token_auth?token=' + token
+    const test = await fetch(url, {
+        method: 'GET',
+    })
+    const result = await test.json()
+    return result['id'] || null
 }
-
-//function createToken() {
-    //return crypto.randomInt(2 ** 47, 2 ** 48).toString(36)
-//}
 
 function checkDuplicateId(db, instanceId) {
     const sql = "SELECT * FROM instances WHERE id = (?)"
@@ -199,8 +196,9 @@ function deleteInstanceFromPid(db, instanceId, pid) {
     })
 }
 
-function setAutoDestroyInstance(db, instanceId, waitSec) {
+function setAutoDestroyInstance(db, req, instanceId, waitSec) {
     setTimeout(async () => {
+        req.session.destroy()
         await deleteInstanceFromId(db, instanceId)
     }, TIMEOUT_MINUTE * 60 * 1000)
 }
@@ -233,22 +231,18 @@ db.serialize(() => {
     app.set('view engine', 'ejs')
     app.set('trust proxy', true) // i know you can modify X-Forwarded-For with ease but whatever
     app.use(bodyParser.urlencoded({ extended: false }))
-    //app.use(session({
-        //secret: crypto.randomBytes(20).toString('hex'),
-        //resave: true,
-        //saveUninitialized: false
-    //}))
+    app.use(session({
+        secret: crypto.randomBytes(20).toString('hex'),
+        resave: true,
+        saveUninitialized: false
+    }))
 
     app.use(express.static('public'))
 
     app.get('/', async (req, res) => {
         try {
-            //if (req.session.instanceId) {
-                //return res.redirect('/info')
-            //}
-            const instanceId = getInstanceId(req)
-            const dupId = await checkDuplicateId(db, instanceId)
-            if (dupId) {
+            if (req.session && req.session.instanceId) {
+                const instanceId = req.session.instanceId
                 const spawned = await getInstanceSpawned(db, instanceId)
                 if (spawned === true) {
                     return res.redirect('/info')
@@ -256,8 +250,13 @@ db.serialize(() => {
                 else if (spawned === false) {
                     return res.redirect('/wait')
                 }
+                else if (spawned === null) {
+                    req.session.destroy()
+                    const message = '<b>Error: invalid session</b>'
+                    return res.status(401).send(message)
+                }
             }
-            return res.render('index', { title: CHALLENGE_TITLE, turnstileSitekey: TURNSTILE_SITE_KEY })
+            return res.render('index', { title: CHALLENGE_TITLE, turnstileSitekey: TURNSTILE_SITE_KEY, invalidToken: false })
         } catch (err) {
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
             return res.status(500).send(message)
@@ -266,24 +265,23 @@ db.serialize(() => {
     app.get('/info', async (req, res) => {
         try {
 
-            //const expiredAt = req.session.expiredAt
-            //if (!instanceId || !expiredAt) {
-                //return res.redirect('/')
-            //}
-            const instanceId = getInstanceId(req)
-            const dupId = await checkDuplicateId(db, instanceId)
-            if (!dupId) {
+            if (!req.session || !req.session.instanceId) {
                 return res.redirect('/')
             }
+
+            const instanceId = req.session.instanceId
 
             const spawned = await getInstanceSpawned(db, instanceId)
             if (spawned === false) {
                 return res.redirect('/wait')
+            } else if (spawned === null) {
+                req.session.destroy()
+                const message = '<b>Error: invalid session</b>'
+                return res.status(401).send(message)
             }
 
             const { port, expiredAt } = await getInfoFromInstance(db, instanceId)
             const delta = Math.floor(expiredAt - Date.now() / 1000);
-            console.log(delta)
             const deltaDisplay = getDeltaDisplay(delta);
             return res.render('info', { title: CHALLENGE_TITLE, host: CHALLENGE_HOST, port: port, countdown: deltaDisplay })
         } catch (err) {
@@ -294,21 +292,23 @@ db.serialize(() => {
 
     app.post('/delete', async (req, res) => {
         try {
-            const instanceId = getInstanceId(req)
-            const dupId = await checkDuplicateId(db, instanceId)
-            if (!dupId) {
+            if (!req.session || !req.session.instanceId) {
                 return res.redirect('/')
             }
 
+            const instanceId = req.session.instanceId
+
             const spawned = await getInstanceSpawned(db, instanceId)
-            if (spawned === false) {
-                return res.redirect('/wait')
+            if (spawned === null) {
+                req.session.destroy()
+                const message = '<b>Error: invalid session</b>'
+                return res.status(401).send(message)
             }
 
             const { pid } = await getInfoFromInstance(db, instanceId)
             await deleteInstanceFromId(db, instanceId)
             await killInstance(pid)
-            //req.session.destroy()
+            req.session.destroy()
             return res.redirect('/')
 
         } catch (err) {
@@ -319,18 +319,27 @@ db.serialize(() => {
 
     app.post('/create', async (req, res) => {
         try {
-            const instanceId = getInstanceId(req)
-            const dupIp = await checkDuplicateId(db, instanceId)
-            if (dupIp) {
-                const spawned = await getInfoFromInstance(db, instanceId)
+            if (req.session && req.session.instanceId) {
+                const instanceId = req.session.instanceId
+                const spawned = await getInstanceSpawned(db, instanceId)
                 if (spawned === true) {
                     return res.redirect('/info')
                 }
                 else if (spawned === false) {
                     return res.redirect('/wait')
                 }
+                else if (spawned === null) {
+                    req.session.destroy()
+                    const message = '<b>Error: invalid session</b>'
+                    return res.status(401).send(message)
+                }
             }
 
+            if (!req.body || !req.body.token || !req.body['cf-turnstile-response']) {
+                const message = `<b>Error: invalid request</b>`
+                return res.status(400).send(message)
+            }
+            
             const turnstileResponse = req.body['cf-turnstile-response']
             let formData = new FormData()
             formData.append('secret', TURNSTILE_SECRET_KEY)
@@ -342,16 +351,26 @@ db.serialize(() => {
             })
             const turnstileResult = await result.json()
             if (turnstileResult.success) {
-                //let instanceId = createInstanceId()
-                //while (await checkDuplicateId(db, instanceId)) {
-                //    instanceId = createInstanceId()
-                //}
+
+                const token = req.body['token']
+
+                const instanceId = await getInstanceId(req, token)
+                if (instanceId === null) {
+                    return res.render('index', { title: CHALLENGE_TITLE, turnstileSitekey: TURNSTILE_SITE_KEY, invalidToken: true })
+                }
+
+                req.session.instanceId = instanceId
+
+                const dupId = await checkDuplicateId(db, instanceId)
+                if (dupId) {
+                    return res.redirect('/info')
+                }
+
                 const port = getRandomPort()
                 const pid = await spawnInstance(instanceId, port)
                 const expiredAt = Math.floor(Date.now() / 1000 + (WAIT_SPAWN_MINUTE + TIMEOUT_MINUTE) * 60)
                 await storeInstanceInfo(db, instanceId, port, pid, expiredAt)
-                setAutoDestroyInstance(db, instanceId, (WAIT_SPAWN_MINUTE + TIMEOUT_MINUTE) * 60)
-
+                setAutoDestroyInstance(db, req, instanceId, (WAIT_SPAWN_MINUTE + TIMEOUT_MINUTE) * 60)
                 waitForInstanceToSpawn(db, instanceId, WAIT_SPAWN_MINUTE * 60)
 
                 //req.session.expiredAt = new Date(Date.now() + TIMEOUT_MINUTE * 60 * 1000).toLocaleString('en-us', { timeZone: 'UTC' })
@@ -367,15 +386,20 @@ db.serialize(() => {
     })
     app.get('/wait', async (req, res) => {
         try {
-            const instanceId = getInstanceId(req)
-            const dupId = await checkDuplicateId(db, instanceId)
-            if (!dupId) {
+            if (!req.session || !req.session.instanceId) {
                 return res.redirect('/')
             }
+
+            const instanceId = req.session.instanceId
 
             const spawned = await getInstanceSpawned(db, instanceId)
             if (spawned === true) {
                 return res.redirect('/info')
+            }
+            else if (spawned === null) {
+                req.session.destroy()
+                const message = '<b>Error: invalid session</b>'
+                return res.status(401).send(message)
             }
 
             const { waited } = await getInfoFromInstance(db, instanceId)
