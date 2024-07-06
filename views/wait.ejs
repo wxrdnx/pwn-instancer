@@ -18,20 +18,17 @@
         <div class="container">
             <main class="main-content">
                 <section class="showcase">
-                    <section class="nes-container with-title is-centered">
-                        <h3 class="title">Instance Info</h3>
+                    <section id="create-container" class="nes-container with-title is-centered">
+                        <h3 class="title">Spawning Instance...</h3>
                         <div class="item">
                             <div class="nes-container is-dark with-title nes-pointer">
-                                <h4 class="title">Your Instance</h4>
-                                <h1>nc <%= host %> <%= port %></h1>
+                                <h4 class="nes-text">Please wait for the instance to spawn...</h4>
                             </div>
-                            <form action="/delete" method="POST">
-                                <input class="nes-btn is-error" type="submit" value="Delete Instance">
-                            </form>
-                            <span class="nes-text is-error">Remaining time:</span>
-                            <span id="countdown"><%= countdown %></span>
+                            <progress id="progress-bar" class="nes-progress is-pattern" value="<%= waited %>" max="60"></progress>
                         </div>
                     </section>
+                </section>
+                <section class="showcase">
                 </section>
             </main>
             <footer>
@@ -41,6 +38,6 @@
                 </div>
             </footer>
         </div>
-        <script src="js/countdown.js"></script>
+        <script src="js/wait.js"></script>
     </div>
 </body>

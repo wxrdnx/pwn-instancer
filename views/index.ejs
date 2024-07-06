@@ -17,32 +17,37 @@
         </header>
         <div class="container">
             <main class="main-content">
-                <section class="showcase">
-                    <section class="nes-container with-title is-centered">
-                        <h3 class="title">Create Instance</h3>
-                        <button id="create-button" class="nes-btn is-primary">Spawn</button>
-                    </section>
-                </section>
-                <section class="showcase">
+                <section id="create-container" class="nes-container with-title is-centered">
+                    <h3 class="title">Create Instance</h3>
+                    <div class="item">
+                        <div class="nes-container is-dark with-title nes-pointer">
+                            <h4 class="nes-text">Press the following button to create an instance</h4>
+                        </div>
+                        <button id="create-button" class="nes-btn is-success">Create</button>
+                    </div>
                 </section>
             </main>
             <footer>
-                <p>
-                <span>&copy;2023</span>
-                <span>Powered by <a href="https://nostalgic-css.github.io/NES.css/">NES.css</a></span>
-                </p>
+                <div>
+                    <span>&copy;2023</span>
+                    <span>Powered by <a href="https://nostalgic-css.github.io/NES.css/">NES.css</a></span>
+                </div>
             </footer>
         </div>
         <div>
             <form action="/create" method="POST">
                 <dialog id="turnstile-dialog" class="nes-dialog is-dark">
-                    <section class="message-left">
-                        <i class="nes-kirby"><br></i>
-                    <div class="nes-balloon from-left is-dark">
-                        <p class="nes-text">Verify that you are not a robot...</p>
-                    </div>
+                    <section class="nes-container is-centered">
+                        <section class="message-left">
+                            <i class="nes-kirby"><br></i>
+                            <div class="nes-balloon from-left is-dark">
+                                <p class="nes-text">Verify that you are not a robot...</p>
+                            </div>
+                        </section>
+                        <div class="cf-turnstile" data-sitekey="<%= turnstileSitekey %>"
+                                data-callback="submitCreateInstance" style="margin-top: 2rem">
+                        </div>
                     </section>
-                    <div class="cf-turnstile" data-sitekey="<%= turnstileSitekey %>" data-callback="submitCreateInstance" style="margin-top: 2rem"></div>
                 </dialog>
             </form>
         </div>

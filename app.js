@@ -8,7 +8,8 @@ const sqlite3 = require('sqlite3').verbose()
 const child_process = require('child_process')
 const crypto = require('crypto')
 
-const TIMEOUT = process.env.TIMEOUT || 30
+const TIMEOUT_MINUTE = process.env.TIMEOUT_MINUTE || 30
+const WAIT_SPAWN_MINUTE = process.env.WAIT_SPAWN_MINUTE || 1
 const CHALLENGE_TITLE = process.env.CHALLENGE_TITLE || 'Seccomp Hell'
 const CHALLENGE_HOST = process.env.CHALLENGE_HOST || '127.0.0.1'
 const CHALLENGE_PORT = process.env.CHALLENGE_PORT || 30003
@@ -20,7 +21,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAAJvhZ
     //return crypto.randomUUID()
 //}
 
-function getInstaceId(req) {
+function getInstanceId(req) {
     return req.ip
 }
 
@@ -45,9 +46,9 @@ function checkDuplicateId(db, instanceId) {
 }
 
 function storeInstanceInfo(db, instanceId, port, pid, expiredAt) {
-    const sql = "INSERT INTO instances VALUES (?, ?, ?, ?)"
+    const sql = "INSERT INTO instances VALUES (?, ?, ?, ?, ?, ?)"
     return new Promise((resolve, reject) => {
-        db.all(sql, [instanceId, port, pid, expiredAt], (err, row) => {
+        db.all(sql, [instanceId, port, pid, expiredAt, 0, 0], (err, row) => {
             if (err) {
                 reject(err)
             }
@@ -55,6 +56,46 @@ function storeInstanceInfo(db, instanceId, port, pid, expiredAt) {
         })
     })
 }
+
+function setInstanceSpawned(db, instanceId) {
+    const sql = "UPDATE instances SET spawned = 1 WHERE id = (?)"
+    return new Promise((resolve, reject) => {
+        db.all(sql, [instanceId], (err, row) => {
+            if (err) {
+                reject(err)
+            }
+            resolve(true)
+        })
+    })
+}
+
+function getInstanceSpawned(db, instanceId) {
+    const sql = "SELECT spawned FROM instances WHERE id = (?)"
+    return new Promise((resolve, reject) => {
+        db.get(sql, [instanceId], (err, row) => {
+            if (err) {
+                reject(err)
+            }
+            if (row) {
+                resolve(row.spawned === 0 ? false : true)
+            }
+            resolve(null)
+        })
+    })
+}
+
+function incrementInstanceWaited(db, instanceId, waited) {
+    const sql = "UPDATE instances SET waited = waited + 1 WHERE id = (?)"
+    return new Promise((resolve, reject) => {
+        db.all(sql, [instanceId], (err, row) => {
+            if (err) {
+                reject(err)
+            }
+            resolve(true)
+        })
+    })
+}
+
 
 function deleteInstanceFromId(db, instanceId) {
     const sql = "DELETE FROM instances WHERE id = (?)"
@@ -75,9 +116,21 @@ function getInfoFromInstance(db, instanceId) {
             if (err) {
                 reject(err)
             }
-            resolve({ port: row.port, pid: row.pid, expiredAt: row.expiredAt })
+            resolve({ port: row.port, pid: row.pid, expiredAt: row.expiredAt, waited: row.waited })
         })
     })
+}
+
+async function waitForInstanceToSpawn(db, instanceId, waitSec) {
+    let { waited } = await getInfoFromInstance(db, instanceId)
+    let countdown = setInterval(async () => {
+        waited++
+        incrementInstanceWaited(db, instanceId)
+        if (waited >= waitSec) {
+            clearInterval(countdown)
+            await setInstanceSpawned(db, instanceId)
+        }
+    }, 1000);
 }
 
 function getRandomPort() {
@@ -100,9 +153,10 @@ function spawnInstance(instanceId, port) {
             '-device', 'e1000,netdev=net0',
             '-no-reboot',
         ]
-        const subprocess = child_process.spawn(command, args);
-        subprocess.on('error', (err) => {
-            reject(false)
+        const subprocess = child_process.execFile(command, args, (err) => {
+            if (err) {
+                reject(err)
+            }
         });
         resolve(subprocess.pid)
     })
@@ -144,29 +198,35 @@ function deleteInstanceFromPid(db, instanceId, pid) {
     })
 }
 
-//function setAutoDestroyInstance(db, session, instanceId) {
-    //setTimeout(async () => {
-        //session.destroy()
-        //await deleteInstanceFromId(db, instanceId)
-    //}, TIMEOUT * 60 * 1000)
-//}
-
-function setAutoDestroyInstance(db, instanceId) {
+function setAutoDestroyInstance(db, instanceId, waitSec) {
     setTimeout(async () => {
         await deleteInstanceFromId(db, instanceId)
-    }, TIMEOUT * 60 * 1000)
+    }, TIMEOUT_MINUTE * 60 * 1000)
 }
 
 function getDeltaDisplay(delta) {
-    const hours = Math.floor((delta % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)).toString().padStart(2, '0');
-    const minutes = Math.floor((delta % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
-    const seconds = Math.floor((delta % (1000 * 60)) / 1000).toString().padStart(2, '0');
-    return `${hours}:${minutes}:${seconds}`;
+    const hours = Math.floor(delta / (60 * 60)).toString().padStart(2, '0')
+    const minutes = Math.floor((delta / 60) % 60).toString().padStart(2, '0')
+    const seconds = Math.floor(delta % 60).toString().padStart(2, '0')
+    return `${hours}:${minutes}:${seconds}`
 }
+
+//function sleep(sec) {
+    //return new Promise(resolve => setTimeout(resolve, sec * 1000))
+//}
 
 const db = new sqlite3.Database('instances.db')
 db.serialize(() => {
-    db.run('CREATE TABLE IF NOT EXISTS instances (id TEXT PRIMARY KEY, port INTEGER, pid INTEGER, expiredAt INTEGER)')
+    db.run(`
+        CREATE TABLE IF NOT EXISTS instances (
+            id TEXT PRIMARY KEY,
+            port INTEGER,
+            pid INTEGER,
+            expiredAt INTEGER,
+            spawned INTEGER,
+            waited INTEGER
+        )
+    `)
 
     const app = express()
     app.set('view engine', 'ejs')
@@ -181,99 +241,147 @@ db.serialize(() => {
     app.use(express.static('public'))
 
     app.get('/', async (req, res) => {
-        //if (req.session.instanceId) {
-            //return res.redirect('/info')
-        //}
-        const instanceId = getInstaceId(req)
-        const dupId = await checkDuplicateId(db, instanceId)
-        if (dupId) {
-            return res.redirect('/info')
+        try {
+            //if (req.session.instanceId) {
+                //return res.redirect('/info')
+            //}
+            const instanceId = getInstanceId(req)
+            const dupId = await checkDuplicateId(db, instanceId)
+            if (dupId) {
+                const spawned = await getInstanceSpawned(db, instanceId)
+                if (spawned === true) {
+                    return res.redirect('/info')
+                }
+                else if (spawned === false) {
+                    return res.redirect('/wait')
+                }
+            }
+            return res.render('index', { title: CHALLENGE_TITLE, turnstileSitekey: TURNSTILE_SITE_KEY })
+        } catch (err) {
+            const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
+            return res.status(500).send(message)
         }
-        return res.render('index', { title: CHALLENGE_TITLE, turnstileSitekey: TURNSTILE_SITE_KEY })
     })
     app.get('/info', async (req, res) => {
-        //const instanceId = req.session.instanceId
-        //const expiredAt = req.session.expiredAt
-        //if (!instanceId || !expiredAt) {
-            //return res.redirect('/')
-        //}
-        const instanceId = getInstaceId(req)
-        const dupId = await checkDuplicateId(db, instanceId)
-        if (!dupId) {
-            return res.redirect('/')
-        }
-
         try {
+
+            //const expiredAt = req.session.expiredAt
+            //if (!instanceId || !expiredAt) {
+                //return res.redirect('/')
+            //}
+            const instanceId = getInstanceId(req)
+            const dupId = await checkDuplicateId(db, instanceId)
+            if (!dupId) {
+                return res.redirect('/')
+            }
+
+            const spawned = await getInstanceSpawned(db, instanceId)
+            if (spawned === false) {
+                return res.redirect('/wait')
+            }
+
             const { port, expiredAt } = await getInfoFromInstance(db, instanceId)
-            const delta = expiredAt - Date.now();
+            const delta = Math.floor(expiredAt - Date.now() / 1000);
+            console.log(delta)
             const deltaDisplay = getDeltaDisplay(delta);
             return res.render('info', { title: CHALLENGE_TITLE, host: CHALLENGE_HOST, port: port, countdown: deltaDisplay })
         } catch (err) {
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
-            res.status(500).send(message)
+            return res.status(500).send(message)
         }
     })
 
     app.post('/delete', async (req, res) => {
-        //const instanceId = req.session.instanceId
-        const instanceId = getInstaceId(req)
-        const dupId = await checkDuplicateId(db, instanceId)
-        if (!dupId) {
-            return res.redirect('/')
-        }
-
         try {
+            const instanceId = getInstanceId(req)
+            const dupId = await checkDuplicateId(db, instanceId)
+            if (!dupId) {
+                return res.redirect('/')
+            }
+
+            const spawned = await getInstanceSpawned(db, instanceId)
+            if (spawned === false) {
+                return res.redirect('/wait')
+            }
+
             const { pid } = await getInfoFromInstance(db, instanceId)
             await deleteInstanceFromId(db, instanceId)
             await killInstance(pid)
             //req.session.destroy()
-            res.redirect('/')
+            return res.redirect('/')
+
         } catch (err) {
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
-            res.status(500).send(message)
+            return res.status(500).send(message)
         }
     })
 
     app.post('/create', async (req, res) => {
-        //const instanceId = req.session.instanceId
-        const instanceId = getInstaceId(req)
-        const dupIp = await checkDuplicateId(db, instanceId)
-        if (dupIp) {
-            return res.redirect('/info')
-        }
+        try {
+            const instanceId = getInstanceId(req)
+            const dupIp = await checkDuplicateId(db, instanceId)
+            if (dupIp) {
+                const spawned = await getInfoFromInstance(db, instanceId)
+                if (spawned === true) {
+                    return res.redirect('/info')
+                }
+                else if (spawned === false) {
+                    return res.redirect('/wait')
+                }
+            }
 
-        const turnstileResponse = req.body['cf-turnstile-response']
-        let formData = new FormData()
-        formData.append('secret', TURNSTILE_SECRET_KEY)
-        formData.append('response', turnstileResponse)
-        const url = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-        const result = await fetch(url, {
-            body: formData,
-            method: 'POST',
-        })
-        const turnstileResult = await result.json()
-        if (turnstileResult.success) {
-            try {
+            const turnstileResponse = req.body['cf-turnstile-response']
+            let formData = new FormData()
+            formData.append('secret', TURNSTILE_SECRET_KEY)
+            formData.append('response', turnstileResponse)
+            const url = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+            const result = await fetch(url, {
+                body: formData,
+                method: 'POST',
+            })
+            const turnstileResult = await result.json()
+            if (turnstileResult.success) {
                 //let instanceId = createInstanceId()
                 //while (await checkDuplicateId(db, instanceId)) {
                 //    instanceId = createInstanceId()
                 //}
                 const port = getRandomPort()
                 const pid = await spawnInstance(instanceId, port)
-                const expiredAt = Date.now() + TIMEOUT * 60 * 1000
+                const expiredAt = Math.floor(Date.now() / 1000 + (WAIT_SPAWN_MINUTE + TIMEOUT_MINUTE) * 60)
                 await storeInstanceInfo(db, instanceId, port, pid, expiredAt)
-                setAutoDestroyInstance(db, req.session, instanceId)
+                setAutoDestroyInstance(db, instanceId, (WAIT_SPAWN_MINUTE + TIMEOUT_MINUTE) * 60)
 
-                //req.session.instanceId = instanceId
-                //req.session.expiredAt = new Date(Date.now() + TIMEOUT * 60 * 1000).toLocaleString('en-us', { timeZone: 'UTC' })
-                return res.redirect('/info')
-            } catch (err) {
-                const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
-                res.status(500).send(message)
+                waitForInstanceToSpawn(db, instanceId, WAIT_SPAWN_MINUTE * 60)
+
+                //req.session.expiredAt = new Date(Date.now() + TIMEOUT_MINUTE * 60 * 1000).toLocaleString('en-us', { timeZone: 'UTC' })
+                return res.redirect('/wait')
+            } else {
+                const message = `<b>Error: invalid captcha:</b><br><pre>${turnstileResult['error-codes']}</pre>`
+                return res.status(404).send(message)
             }
-        } else {
-            const message = `<b>Error: invalid captcha:</b><br><pre>${turnstileResult['error-codes']}</pre>`
-            res.status(404).send(message)
+        } catch (err) {
+            const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
+            return res.status(500).send(message)
+        }
+    })
+    app.get('/wait', async (req, res) => {
+        try {
+            const instanceId = getInstanceId(req)
+            const dupId = await checkDuplicateId(db, instanceId)
+            if (!dupId) {
+                return res.redirect('/')
+            }
+
+            const spawned = await getInstanceSpawned(db, instanceId)
+            if (spawned === true) {
+                return res.redirect('/info')
+            }
+
+            const { waited } = await getInfoFromInstance(db, instanceId)
+            return res.render('wait', { title: CHALLENGE_TITLE, waited: waited })
+        } catch (err) {
+            const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
+            return res.status(500).send(message)
         }
     })
     app.listen(CHALLENGE_PORT)
