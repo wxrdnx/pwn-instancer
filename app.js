@@ -1,7 +1,6 @@
 const express = require('express')
 const bodyParser = require('body-parser')
 const FormData = require('form-data')
-//const session = require('express-session')
 const fetch = require('node-fetch')
 const sqlite3 = require('sqlite3').verbose()
 
@@ -13,21 +12,18 @@ const WAIT_SPAWN_MINUTE = process.env.WAIT_SPAWN_MINUTE || 1
 const CHALLENGE_TITLE = process.env.CHALLENGE_TITLE || 'Seccomp Hell'
 const CHALLENGE_HOST = process.env.CHALLENGE_HOST || '127.0.0.1'
 const CHALLENGE_PORT = process.env.CHALLENGE_PORT || 30000
-//const CHALLENGE_CONTAINER = 'ubuntu:latest'
-const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAAJvhe911CZyTjmP'
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAAJvhZ4MTsHE0nw7hB6kPD0PQvs'
+const CHALLENGE_CONTAINER = 'ubuntu:latest'
+const TURNSTILE_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '0x4AAAAAAAxxxxxxxxxxxxxx'
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAAxxxxxxxxxxxxxxxxxxxxxxxxx'
 
-//function createInstanceId() {
-    //return crypto.randomUUID()
-//}
+const MIN_PORT = 49000
+const MAX_PORT = 50000
 
 function getInstanceId(req) {
+    // Change me: The instance is per IP
     return req.ip
 }
-
-//function createToken() {
-    //return crypto.randomInt(2 ** 47, 2 ** 48).toString(36)
-//}
 
 function checkDuplicateId(db, instanceId) {
     const sql = "SELECT * FROM instances WHERE id = (?)"
@@ -96,7 +92,6 @@ function incrementInstanceWaited(db, instanceId, waited) {
     })
 }
 
-
 function deleteInstanceFromId(db, instanceId) {
     const sql = "DELETE FROM instances WHERE id = (?)"
     return new Promise((resolve, reject) => {
@@ -134,13 +129,12 @@ async function waitForInstanceToSpawn(db, instanceId, waitSec) {
 }
 
 function getRandomPort() {
-    //let minPort = 49152, maxPort = 65535
-    let minPort = 49000, maxPort = 50000
-    return Math.floor(Math.random() * (maxPort - minPort + 1) + minPort)
+    return Math.floor(Math.random() * (MAX_PORT - MIN_PORT + 1) + MIN_PORT)
 }
 
 function spawnInstance(instanceId, port) {
     return new Promise((resolve, reject) => {
+        // CHANGEME: Change how the instance is spawned
         const command = `qemu-system-x86_64`
         const args = [
             '-cpu', 'qemu64,+smap',
@@ -175,18 +169,6 @@ function killInstance(pid) {
     })
 }
 
-//function deleteInstanceFromPort(instanceId, port) {
-    //return new Promise((resolve, reject) => {
-        //const command = `kill -2 $(ss -tlpn | grep '0.0.0.0:${port}' | sed 's/.*pid=\\(.*\\),.*/\\1/')`
-        //child_process.exec(command, (err) => {
-            //if (err) {
-                //reject(err)
-            //}
-            //resolve(true)
-        //})
-    //})
-//}
-
 function deleteInstanceFromPid(db, instanceId, pid) {
     const sql = "DELETE FROM instances WHERE pid = (?)"
     return new Promise((resolve, reject) => {
@@ -212,10 +194,6 @@ function getDeltaDisplay(delta) {
     return `${hours}:${minutes}:${seconds}`
 }
 
-//function sleep(sec) {
-    //return new Promise(resolve => setTimeout(resolve, sec * 1000))
-//}
-
 const db = new sqlite3.Database('instances.db')
 db.serialize(() => {
     db.run(`
@@ -231,21 +209,13 @@ db.serialize(() => {
 
     const app = express()
     app.set('view engine', 'ejs')
-    app.set('trust proxy', true) // i know you can modify X-Forwarded-For with ease but whatever
+    app.set('trust proxy', true) // TODO: X-Forwarded-For
     app.use(bodyParser.urlencoded({ extended: false }))
-    //app.use(session({
-        //secret: crypto.randomBytes(20).toString('hex'),
-        //resave: true,
-        //saveUninitialized: false
-    //}))
 
     app.use(express.static('public'))
 
     app.get('/', async (req, res) => {
         try {
-            //if (req.session.instanceId) {
-                //return res.redirect('/info')
-            //}
             const instanceId = getInstanceId(req)
             const dupId = await checkDuplicateId(db, instanceId)
             if (dupId) {
@@ -259,17 +229,13 @@ db.serialize(() => {
             }
             return res.render('index', { title: CHALLENGE_TITLE, turnstileSitekey: TURNSTILE_SITE_KEY })
         } catch (err) {
+            // TODO: Improve UI with a better error page
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
             return res.status(500).send(message)
         }
     })
     app.get('/info', async (req, res) => {
         try {
-
-            //const expiredAt = req.session.expiredAt
-            //if (!instanceId || !expiredAt) {
-                //return res.redirect('/')
-            //}
             const instanceId = getInstanceId(req)
             const dupId = await checkDuplicateId(db, instanceId)
             if (!dupId) {
@@ -287,6 +253,7 @@ db.serialize(() => {
             const deltaDisplay = getDeltaDisplay(delta);
             return res.render('info', { title: CHALLENGE_TITLE, host: CHALLENGE_HOST, port: port, countdown: deltaDisplay })
         } catch (err) {
+            // TODO: Improve UI with a better error page
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
             return res.status(500).send(message)
         }
@@ -308,10 +275,10 @@ db.serialize(() => {
             const { pid } = await getInfoFromInstance(db, instanceId)
             await deleteInstanceFromId(db, instanceId)
             await killInstance(pid)
-            //req.session.destroy()
             return res.redirect('/')
 
         } catch (err) {
+            // TODO: Improve UI with a better error page
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
             return res.status(500).send(message)
         }
@@ -326,7 +293,7 @@ db.serialize(() => {
                 if (spawned === true) {
                     return res.redirect('/info')
                 }
-                else if (spawned === false) {
+                else {
                     return res.redirect('/wait')
                 }
             }
@@ -335,17 +302,13 @@ db.serialize(() => {
             let formData = new FormData()
             formData.append('secret', TURNSTILE_SECRET_KEY)
             formData.append('response', turnstileResponse)
-            const url = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+            const url = TURNSTILE_URL
             const result = await fetch(url, {
                 body: formData,
                 method: 'POST',
             })
             const turnstileResult = await result.json()
             if (turnstileResult.success) {
-                //let instanceId = createInstanceId()
-                //while (await checkDuplicateId(db, instanceId)) {
-                //    instanceId = createInstanceId()
-                //}
                 const port = getRandomPort()
                 const pid = await spawnInstance(instanceId, port)
                 const expiredAt = Math.floor(Date.now() / 1000 + (WAIT_SPAWN_MINUTE + TIMEOUT_MINUTE) * 60)
@@ -354,7 +317,6 @@ db.serialize(() => {
 
                 waitForInstanceToSpawn(db, instanceId, WAIT_SPAWN_MINUTE * 60)
 
-                //req.session.expiredAt = new Date(Date.now() + TIMEOUT_MINUTE * 60 * 1000).toLocaleString('en-us', { timeZone: 'UTC' })
                 return res.redirect('/wait')
             } else {
                 const message = `<b>Error: invalid captcha:</b><br><pre>${turnstileResult['error-codes']}</pre>`
