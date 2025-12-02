@@ -20,27 +20,6 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '0x4AAAAAAAxxxx
 const MIN_PORT = 49000
 const MAX_PORT = 50000
 
-function getInstanceId(req) {
-    // Change me: The instance is per IP
-    return req.ip
-}
-
-function checkDuplicateId(db, instanceId) {
-    const sql = "SELECT * FROM instances WHERE id = (?)"
-    return new Promise((resolve, reject) => {
-        db.get(sql, [instanceId], (err, row) => {
-            if (err) {
-                reject(err)
-            }
-            if (row) {
-                resolve(true)
-            } else {
-                resolve(false)
-            }
-        })
-    })
-}
-
 function storeInstanceInfo(db, instanceId, port, pid, expiredAt) {
     const sql = "INSERT INTO instances VALUES (?, ?, ?, ?, ?, ?)"
     return new Promise((resolve, reject) => {
@@ -116,6 +95,31 @@ function getInfoFromInstance(db, instanceId) {
     })
 }
 
+function getRandomPort() {
+    return Math.floor(Math.random() * (MAX_PORT - MIN_PORT + 1) + MIN_PORT)
+}
+
+function getInstanceId(req) {
+    // CHANGE: The instance is per IP
+    return req.ip
+}
+
+function checkDuplicateId(db, instanceId) {
+    const sql = "SELECT * FROM instances WHERE id = (?)"
+    return new Promise((resolve, reject) => {
+        db.get(sql, [instanceId], (err, row) => {
+            if (err) {
+                reject(err)
+            }
+            if (row) {
+                resolve(true)
+            } else {
+                resolve(false)
+            }
+        })
+    })
+}
+
 async function waitForInstanceToSpawn(db, instanceId, waitSec) {
     let { waited } = await getInfoFromInstance(db, instanceId)
     let countdown = setInterval(async () => {
@@ -126,10 +130,6 @@ async function waitForInstanceToSpawn(db, instanceId, waitSec) {
             await setInstanceSpawned(db, instanceId)
         }
     }, 1000);
-}
-
-function getRandomPort() {
-    return Math.floor(Math.random() * (MAX_PORT - MIN_PORT + 1) + MIN_PORT)
 }
 
 function spawnInstance(instanceId, port) {
@@ -319,10 +319,12 @@ db.serialize(() => {
 
                 return res.redirect('/wait')
             } else {
+                // TODO: Improve UI with a better error page
                 const message = `<b>Error: invalid captcha:</b><br><pre>${turnstileResult['error-codes']}</pre>`
                 return res.status(404).send(message)
             }
         } catch (err) {
+            // TODO: Improve UI with a better error page
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
             return res.status(500).send(message)
         }
@@ -343,6 +345,7 @@ db.serialize(() => {
             const { waited } = await getInfoFromInstance(db, instanceId)
             return res.render('wait', { title: CHALLENGE_TITLE, waited: waited })
         } catch (err) {
+            // TODO: Improve UI with a better error page
             const message = `<b>Fatal error:</b><br><pre>${err}</pre><br>Please report this message to the challenge author`
             return res.status(500).send(message)
         }
